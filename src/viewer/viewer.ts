@@ -18,6 +18,9 @@ class Viewer {
   private _cameraControl: CameraControls;
   private _renderNeeded = true;
   private _clock = new THREE.Clock();
+  private _raycaster = new THREE.Raycaster();
+  private _mouse = new THREE.Vector2();
+  private _selectedObject: THREE.Object3D | null = null;
 
   public model: THREE.Object3D | undefined;
 
@@ -26,15 +29,13 @@ class Viewer {
   constructor(container: HTMLDivElement) {
     this.id = uuid.v4();
 
-    // console.log("init viewer", this.id);
-
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#333333");
     this.camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
     );
 
     this.camera.position.set(10, 10, 10);
@@ -48,8 +49,8 @@ class Viewer {
     container.appendChild(this._renderer.domElement);
 
     this._cameraControl = new CameraControls(
-      this.camera,
-      this._renderer.domElement
+        this.camera,
+        this._renderer.domElement
     );
 
     this._cameraControl.dollyToCursor = true;
@@ -72,6 +73,9 @@ class Viewer {
     this.scene.add(ambientLight);
 
     window.addEventListener("resize", this.resize);
+
+
+    this._renderer.domElement.addEventListener("click", this.onMouseClick);
 
     this.loadModel().then((object3d) => {
       if (object3d) {
@@ -117,7 +121,7 @@ class Viewer {
 
     try {
       const modelUrl =
-        "https://storage.yandexcloud.net/lahta.contextmachine.online/files/pretty_ceiling_props.json";
+          "https://storage.yandexcloud.net/lahta.contextmachine.online/files/pretty_ceiling_props.json";
 
       const response = await axios.get(modelUrl, {
         headers: {
@@ -131,9 +135,8 @@ class Viewer {
       const jsonObject = findThreeJSJSON(data);
       if (jsonObject) {
         const object3d = await parseJSON(jsonObject);
-        // Assign property values
         this.assignPropertyValues(object3d);
-
+        this.addLabelsToModel(object3d);
         return object3d;
       }
     } catch {
@@ -142,16 +145,84 @@ class Viewer {
     }
   }
 
-  /**
-   * Traverses all child objects in the model and assigns a propertyValue.
-   */
-  /**
-   * Traverses all child objects in the model and assigns an AEC installation progress status.
-   */
+  private addTextLabel(object: THREE.Object3D) {
+    const { statusCode, statusText } = object.userData.propertyValue || {};
+
+    if (statusCode && statusText) {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+
+      canvas.width = 100;
+      canvas.height = 20;
+
+
+      let textColor = "white";
+      let backgroundColor = "black";
+
+      switch (statusCode) {
+        case 1: // Not Started
+          backgroundColor = "rgba(255, 0, 0, 0.8)";
+          break;
+        case 2: // In Progress
+          backgroundColor = "rgba(255, 165, 0, 0.8)";
+          break;
+        case 3: // Partially Installed
+          backgroundColor = "rgba(0, 255, 0, 0.8)";
+          break;
+        case 4: // Installed
+          backgroundColor = "rgba(0, 0, 255, 0.8)";
+          break;
+        default:
+          backgroundColor = "rgba(0, 0, 0, 0.8)";
+      }
+
+
+      const cornerRadius = canvas.height / 2;
+      context.beginPath();
+      context.moveTo(cornerRadius, 0);
+      context.arcTo(canvas.width, 0, canvas.width, canvas.height, cornerRadius);
+      context.arcTo(canvas.width, canvas.height, 0, canvas.height, cornerRadius);
+      context.arcTo(0, canvas.height, 0, 0, cornerRadius);
+      context.arcTo(0, 0, canvas.width, 0, cornerRadius);
+      context.closePath();
+
+      context.fillStyle = backgroundColor;
+      context.fill();
+
+
+      context.fillStyle = textColor;
+      context.font = "12px Arial";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(`${statusText}`, canvas.width / 2, canvas.height / 2);
+
+
+      const texture = new THREE.CanvasTexture(canvas);
+
+
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(0.3, 0.1, 0.3);
+      sprite.position.set(0, 0.2, 0);
+
+      object.add(sprite);
+    }
+  }
+
+  private addLabelsToModel(model: THREE.Object3D) {
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        this.addTextLabel(child);
+      }
+    });
+  }
+
   private assignPropertyValues(object: THREE.Object3D) {
     object.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        // Define meaningful AEC installation progress values
+
         const progressStatuses: any = {
           1: "Not Started",
           2: "In Progress",
@@ -159,8 +230,8 @@ class Viewer {
           4: "Installed",
         };
 
-        // Assign installation status based on some criteria (e.g., object name, metadata, or just sequence)
-        const statusIndex: number = (child.id % 4) + 1; // Ensures a cyclic assignment (1 to 4)
+
+        const statusIndex: number = (child.id % 4) + 1;
         child.userData.propertyValue = {
           statusCode: statusIndex,
           statusText: progressStatuses[statusIndex],
@@ -171,9 +242,64 @@ class Viewer {
     console.log("Updated Model with Installation Progress:", object);
   }
 
+
+  private onMouseClick = (event: MouseEvent) => {
+
+    this._mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    this._mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+
+    this._raycaster.setFromCamera(this._mouse, this.camera);
+
+
+    const intersects = this._raycaster.intersectObjects(this.scene.children, true);
+
+    if (intersects.length > 0) {
+      const selectedObject = intersects[0].object;
+
+
+      if (this._selectedObject) {
+        this.resetObjectMaterial(this._selectedObject);
+      }
+
+
+      this._selectedObject = selectedObject;
+      this.highlightObject(selectedObject);
+    } else {
+
+      if (this._selectedObject) {
+        this.resetObjectMaterial(this._selectedObject);
+        this._selectedObject = null;
+      }
+    }
+  };
+
+  highlightObject(object: THREE.Object3D) {
+    if (this._selectedObject) {
+      this.resetObjectMaterial(this._selectedObject);
+    }
+    this._selectedObject = object;
+
+    if (object instanceof THREE.Mesh) {
+      object.userData.originalMaterial = object.material;
+      object.material = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        wireframe: true,
+      });
+    }
+  }
+
+  resetObjectMaterial(object: THREE.Object3D) {
+    if (object instanceof THREE.Mesh && object.userData.originalMaterial) {
+      object.material = object.userData.originalMaterial;
+      delete object.userData.originalMaterial;
+    }
+  }
+
+
   public dispose() {
-    // console.log("dispose viewer", this.id);
     window.removeEventListener("resize", this.resize);
+    this._renderer.domElement.removeEventListener("click", this.onMouseClick);
     this._renderer.domElement.remove();
     this._renderer.dispose();
     this._cameraControl.dispose();

@@ -2,3 +2,10 @@
   margin: 0px;
   text-align: center;
 }
+.text-label {
+  color: white;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 5px;
+  border-radius: 5px;
+  font-size: 14px;
+}

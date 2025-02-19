@@ -1,14 +1,14 @@
 import "./App.css";
 import Loading from "./components/loading";
 import ViewerComponent from "./components/viewer-component";
-import ObjectHierarchyWidget from "./components/ObjectHierarchyWidget"; // Import the new widget
+import ObjectHierarchyWidget from "./components/ObjectHierarchyWidget";
 
 function App() {
     return (
         <>
             <ViewerComponent>
                 <Loading />
-                <ObjectHierarchyWidget /> {/* Add the widget here */}
+                <ObjectHierarchyWidget />
             </ViewerComponent>
         </>
     );
